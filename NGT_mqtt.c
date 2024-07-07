@@ -14,6 +14,8 @@
 #define CONNECTION_RETRY_MAX 3
 #define SET_DEFAULT_SCAN_CHANNEL_THRESHOLD 1
 
+bool isNGTDeviceConnect = true;   // 에지디바이스 통신 후 정보를 수취한 경우 true
+
 static nvs_handle_t nvs_handle;
 
 void message_arrived(MessageData* data)
@@ -127,7 +129,14 @@ nrc_err_t run_sample_mqtt(WIFI_CONFIG *param)
 		}
 	}
 
-	unsigned char send_buf[80], read_buf[80];
+//여기서 부터 NGT RTOS에서 받은 환경 json 정보를 기준으로 처리한다
+//1.BROKER_IP, BROKER_PORT 정보로 connect 한다
+//2.Edge Device의 노드정보(nID)를 기준으로 MQTTSubscribe 한다
+//3.모델명 기준으로 => NGT/400/NGT-400-1001/msg
+
+	if(!isNGTDeviceConnect){};
+
+	unsigned char send_buf[1024], read_buf[1024];
 	int rc = 0;
 	Network network;
 	MQTTPacket_connectData connectData = MQTTPacket_connectData_initializer;
@@ -135,23 +144,7 @@ nrc_err_t run_sample_mqtt(WIFI_CONFIG *param)
 	NetworkInit(&network);
 	MQTTClientInit(mqtt_client, &network, 30000, send_buf, sizeof(send_buf), read_buf, sizeof(read_buf));
 
-#if defined( SUPPORT_MBEDTLS ) && defined( USE_MQTTS )
-	Certs cert;
-	cert.ca_cert = ca_cert;
-	cert.ca_cert_length = sizeof(ca_cert);
-	cert.client_cert = client_cert;
-	cert.client_cert_length = sizeof(client_cert);
-	cert.client_pk = client_pk;
-	cert.client_pk_length = sizeof(client_pk);
-	cert.client_pk_pwd = client_pk_pwd;
-	cert.client_pk_pwd_length = sizeof(client_pk_pwd) - 1;
-#endif
-
-#if defined( SUPPORT_MBEDTLS ) && defined( USE_MQTTS )
-	if ((rc = NetworkConnectTLS(&network, BROKER_IP, BROKER_PORT, &cert)) != 0)
-#else
 	if ((rc = NetworkConnect(&network, BROKER_IP, BROKER_PORT)) != 0)
-#endif
 		nrc_usr_print("Return code from network connect is %d\n", rc);
 	else
 		nrc_usr_print("[%s] Network Connected\n", __func__);
@@ -162,18 +155,19 @@ nrc_err_t run_sample_mqtt(WIFI_CONFIG *param)
 	connectData.MQTTVersion = 3;
 	connectData.clientID.cstring = "nrc_11ah_mqtt_test";
 
+
 	nrc_usr_print("[%s] Try to connect to MQTT Broker......\n", __func__);
 	if ((rc = MQTTConnect(mqtt_client, &connectData)) != 0)
 		nrc_usr_print("Return code from MQTT connect is %d\n", rc);
 	else
 		nrc_usr_print("[%s] MQTT Connected\n", __func__);
 
-	if ((rc = MQTTSubscribe(mqtt_client, "halow/11ah/mqtt/sample/mytopic", 2, message_arrived)) != 0)
+	if ((rc = MQTTSubscribe(mqtt_client, "NGT/400/NGT-400-1001", 2, message_arrived)) != 0)
 		nrc_usr_print("Return code from MQTT subscribe is %d\n", rc);
 
 	for(i=0; i<count; i++) {
 		MQTTMessage message;
-		char payload[35];
+		char payload[256];
 
 		message.qos = 1;
 		message.retained = 0;
@@ -181,13 +175,13 @@ nrc_err_t run_sample_mqtt(WIFI_CONFIG *param)
 		sprintf(payload, "message count %d", ++message_count);
 		message.payloadlen = strlen(payload);
 
-		if ((rc = MQTTPublish(mqtt_client, "halow/11ah/mqtt/sample/mytopic", &message)) != 0)
+		if ((rc = MQTTPublish(mqtt_client, "NGT/400/NGT-400-1001", &message)) != 0)
 		nrc_usr_print("Return code from MQTT publish is %d\n", rc);
 
 		_delay_ms(interval);
 	}
 
-	if ((rc = MQTTUnsubscribe(mqtt_client, "halow/11ah/mqtt/sample/mytopic")) != 0){
+	if ((rc = MQTTUnsubscribe(mqtt_client, "NGT/400/NGT-400-1001")) != 0){
 		nrc_usr_print("Return code from MQTT unsubscribe is %d\n", rc);
 	}
 
@@ -197,11 +191,7 @@ nrc_err_t run_sample_mqtt(WIFI_CONFIG *param)
 		nrc_usr_print("[%s] MQTT disconnected\n", __func__);
 	}
 
-#if defined( SUPPORT_MBEDTLS ) && defined( USE_MQTTS )
-	if (NetworkDisconnectTLS(&network) != 0)
-#else
 	if (NetworkDisconnect(&network) != 0)
-#endif
 		nrc_usr_print("Network Disconnect Fail\n");
 	else
 		nrc_usr_print("[%s] Network Disonnected\n", __func__);
